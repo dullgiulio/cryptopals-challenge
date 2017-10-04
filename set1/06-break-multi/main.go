@@ -42,6 +42,9 @@ func asciiFreq(text []byte) hist {
 		v := text[i]
 		hst[int(v)]++
 	}
+	for i := 0; i < len(hst); i++ {
+		hst[i] = byte(int(hst[i]) * 256 / len(text))
+	}
 	return hist(hst)
 }
 
