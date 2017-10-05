@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/base64"
 	"flag"
@@ -101,23 +100,8 @@ func readBase64(fname string) ([]byte, error) {
 		return nil, fmt.Errorf("cannot open base64 file: %v", err)
 	}
 	defer fh.Close()
-	buf := new(bytes.Buffer)
-	scanner := bufio.NewScanner(fh)
-	for scanner.Scan() {
-		bs := scanner.Bytes()
-		data := make([]byte, base64.StdEncoding.DecodedLen(len(bs)))
-		n, err := base64.StdEncoding.Decode(data, bs)
-		if err != nil {
-			return nil, fmt.Errorf("cannot decode base64 line: %v", err)
-		}
-		if _, err := buf.Write(data[:n]); err != nil {
-			return nil, fmt.Errorf("cannot write to buffer: %v", err)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error while reading codes: %v", err)
-	}
-	return buf.Bytes(), nil
+	dec := base64.NewDecoder(base64.StdEncoding, fh)
+	return ioutil.ReadAll(dec)
 }
 
 type keydist struct {
@@ -258,7 +242,6 @@ func main() {
 		minPass []byte
 	)
 	for _, ksize := range ks {
-		//for ksize := 2; ksize < 41; ksize++ {
 		pass := bestPassword(ksize, data, ref)
 		clear := xorBytes(data, pass)
 		hs := asciiFreq(clear)
