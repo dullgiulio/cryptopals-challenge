@@ -25,11 +25,9 @@ func (e *ecb) BlockSize() int {
 
 func (e *ecb) CryptBlocks(dst, src []byte) {
 	blockSize := e.BlockSize()
-	tmp := make([]byte, len(src), len(src))
 	for i := 0; i < len(src); i += blockSize {
-		e.b.Decrypt(tmp[i:], src[i:])
+		e.b.Decrypt(dst[i:], src[i:])
 	}
-	copy(dst, tmp)
 }
 
 func decryptAesEcb(key, data []byte) ([]byte, error) {
