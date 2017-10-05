@@ -34,16 +34,16 @@ func hamming(a, b []byte) int {
 	return d
 }
 
-type hist []byte
+type hist []int
 
 func asciiFreq(text []byte) hist {
-	hst := make([]byte, 256, 256)
+	hst := make([]int, 256, 256)
 	for i := 0; i < len(text); i++ {
 		v := text[i]
 		hst[int(v)]++
 	}
 	for i := 0; i < len(hst); i++ {
-		hst[i] = byte(int(hst[i]) * 256 / len(text))
+		hst[i] = int(hst[i]) * 2048 / len(text)
 	}
 	return hist(hst)
 }
@@ -61,7 +61,7 @@ func histDistance(hst1, hst2 hist) int {
 	}
 	var diff int
 	for i := 0; i < len(hst1); i++ {
-		diff = diff + abs(int(hst2[i])-int(hst1[i]))
+		diff = diff + abs(int(hst2[i])-int(hst1[i]))*(int(hst2[i])+1)
 	}
 	return diff
 }
@@ -120,55 +120,57 @@ func readBase64(fname string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-type keydists struct {
-	ks []int
-	ds []int
+type keydist struct {
+	size int
+	dist float64
 }
 
-func makeKeydists(w int) keydists {
-	return keydists{
-		ks: make([]int, w, w),
-		ds: make([]int, w, w),
-	}
+type keydists []keydist
+
+func (k keydists) Len() int {
+	return len(k)
 }
 
-func (k *keydists) add(i, val, dist int) {
-	k.ks[i] = val
-	k.ds[i] = dist
+func (k keydists) Less(i, j int) bool {
+	return k[i].dist < k[j].dist
 }
 
-func (k *keydists) first(n int) []int {
-	return k.ks[:n]
+func (k keydists) Swap(i, j int) {
+	k[i], k[j] = k[j], k[i]
 }
 
-func (k *keydists) Len() int {
-	return len(k.ks)
-}
-
-func (k *keydists) Less(i, j int) bool {
-	return k.ds[i] < k.ds[j]
-}
-
-func (k *keydists) Swap(i, j int) {
-	k.ds[i], k.ds[j] = k.ds[j], k.ds[i]
-	k.ks[i], k.ks[j] = k.ks[j], k.ks[i]
-}
-
-func keysizes(min, max, n int, data []byte) ([]int, error) {
-	w := max - min
-	sz := makeKeydists(w)
-	for i := 0; i < w; i++ {
-		keysz := i + min
-		if len(data) < keysz*2 {
-			return nil, fmt.Errorf("data too small for keysize %d", keysz)
+func (k keydists) first(n int) []int {
+	sort.Sort(&k)
+	first := make([]int, 0)
+	sizes := 0
+	lastdst := 0.0
+	for _, ks := range k {
+		if ks.dist != lastdst {
+			sizes++
+			lastdst = ks.dist
 		}
-		a := data[0 : keysz-1]
-		b := data[keysz : keysz*2-1]
-		dst := hamming(a, b) / keysz
-		sz.add(i, keysz, dst)
+		first = append(first, ks.size)
+		if sizes > n-1 {
+			break
+		}
 	}
-	sort.Sort(&sz)
-	return sz.first(n), nil
+	return first
+}
+
+func keysizes(min, max int, data []byte) (keydists, error) {
+	ks := keydists(make([]keydist, 0))
+	for keysz := min; keysz < max; keysz++ {
+		if len(data) < keysz*4 {
+			return nil, fmt.Errorf("data too short for keysize %d", keysz)
+		}
+		a := data[0:keysz]
+		b := data[keysz : keysz*2]
+		c := data[keysz*2 : keysz*3]
+		d := data[keysz*3 : keysz*4]
+		dst := float64(hamming(a, b)+hamming(b, c)+hamming(c, d)) / float64(keysz*4)
+		ks = append(ks, keydist{keysz, dst})
+	}
+	return ks, nil
 }
 
 func makeBlocks(data []byte, sz int) [][]byte {
@@ -198,7 +200,7 @@ func bestPassword(ksize int, data []byte, ref hist) []byte {
 			minDist int = -1
 			minByte byte
 		)
-		for b := byte('!'); b <= byte('~'); b++ {
+		for b := byte(1); b <= byte(254); b++ {
 			xb := xorByte(block, b)
 			hs := asciiFreq(xb)
 			d := histDistance(hs, ref)
@@ -210,6 +212,18 @@ func bestPassword(ksize int, data []byte, ref hist) []byte {
 		pass[n] = minByte
 	}
 	return pass
+}
+
+func forceAscii(bs []byte) []byte {
+	var buf bytes.Buffer
+	for _, b := range bs {
+		if b != '\n' && b != ' ' && (b < byte(33) || b > byte(126)) {
+			fmt.Fprintf(&buf, "\\x%02x", b)
+			continue
+		}
+		buf.WriteByte(b)
+	}
+	return buf.Bytes()
 }
 
 func main() {
@@ -233,16 +247,18 @@ func main() {
 		log.Fatalf("cannot read file to decrypt %s: %v", *fname, err)
 	}
 	// Likely key sizes to try
-	ks, err := keysizes(4, 200, 4, data)
+	kds, err := keysizes(2, 41, data)
 	if err != nil {
 		log.Fatalf("cannot guess keysize: %v", err)
 	}
+	ks := kds.first(3)
 	var (
 		minDist int = -1
 		minText []byte
 		minPass []byte
 	)
 	for _, ksize := range ks {
+		//for ksize := 2; ksize < 41; ksize++ {
 		pass := bestPassword(ksize, data, ref)
 		clear := xorBytes(data, pass)
 		hs := asciiFreq(clear)
@@ -253,5 +269,5 @@ func main() {
 			minPass = pass
 		}
 	}
-	fmt.Printf("PASSWORD: %s\n\n%s\n===================\n", string(minPass), string(minText))
+	fmt.Printf("PASSWORD: %s\n\n%s\n", string(forceAscii(minPass)), string(forceAscii(minText)))
 }
