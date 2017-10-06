@@ -101,17 +101,14 @@ func newEncrypter() *encrypter {
 	return e
 }
 
-func (e *encrypter) encrypt(prefix []byte, secretoff int) []byte {
-	if secretoff >= len(e.secret) {
-		return nil
-	}
+func (e *encrypter) encrypt(prefix []byte) []byte {
 	blocksize := 16
-	size := len(prefix) + len(e.secret) - secretoff
+	size := len(prefix) + len(e.secret)
 	size = size + blocksize - (size % blocksize)
 	// padding is done by just allocating zeroes
 	buf := make([]byte, size)
 	copy(buf, prefix)
-	copy(buf[len(prefix):], e.secret[secretoff:])
+	copy(buf[len(prefix):], e.secret)
 	e.bm.CryptBlocks(buf, buf)
 	return buf
 }
@@ -123,7 +120,7 @@ func guessSizes(e *encrypter) (secret, block int) {
 		for i := 0; i < n; i++ {
 			prefix[i] = 'A'
 		}
-		res := e.encrypt(prefix, 0)
+		res := e.encrypt(prefix)
 		if nblks != 0 && len(res) > nblks {
 			return nblks - n, len(res) - first
 		}
@@ -135,33 +132,35 @@ func guessSizes(e *encrypter) (secret, block int) {
 	}
 }
 
-func fillHash(h *hash, e *encrypter, blocksize int) {
-	prefix := make([]byte, blocksize)
-	for i := 0; i < blocksize; i++ {
-		prefix[i] = '-'
-	}
+func fillHash(h *hash, e *encrypter, prefix []byte) {
+	end := len(prefix)
 	for i := byte(0); i < byte(255); i++ {
-		prefix[blocksize-1] = i
-		res := e.encrypt(prefix, 0)
-		h.put(res[0:blocksize], i)
+		prefix[end-1] = i
+		res := e.encrypt(prefix)
+		h.put(res[0:end], i)
 	}
 	h.sort()
 }
 
-func decrypt(h *hash, e *encrypter, blocksize, slen int) []byte {
-	secret := make([]byte, slen)
-	prefix := make([]byte, blocksize-1)
-	for i := 0; i < blocksize-1; i++ {
-		prefix[i] = '-'
-	}
+func makePrefix(secret []byte, blocksize int) []byte {
+	lpad := blocksize - (len(secret) % blocksize) - 1
+	prefix := make([]byte, len(secret)+lpad+1)
+	copy(prefix[lpad:], secret)
+	return prefix
+}
+
+func decrypt(e *encrypter, blocksize, slen int) []byte {
+	secret := make([]byte, 0)
 	for i := 0; i < slen; i++ {
-		res := e.encrypt(prefix, i)
-		k := res[0:blocksize]
-		b, ok := h.get(k)
+		prefix := makePrefix(secret, blocksize)
+		h := newHash()
+		fillHash(h, e, prefix)
+		res := e.encrypt(prefix[:len(prefix)-i-1])
+		b, ok := h.get(res[:len(prefix)])
 		if !ok {
-			log.Fatalf("blocksize %v not in hashmap", k)
+			log.Fatalf("block %v not in hashmap", res[0:len(prefix)-i-1])
 		}
-		secret[i] = b
+		secret = append(secret, b)
 	}
 	return secret
 }
@@ -169,9 +168,7 @@ func decrypt(h *hash, e *encrypter, blocksize, slen int) []byte {
 func main() {
 	enc := newEncrypter()
 	slen, blksz := guessSizes(enc)
-	fmt.Printf("secret len = %d, blocksize = %d\n", slen, blksz)
-	h := newHash()
-	fillHash(h, enc, blksz)
-	secret := decrypt(h, enc, blksz, slen)
+	// fmt.Printf("secret len = %d, blocksize = %d\n", slen, blksz)
+	secret := decrypt(enc, blksz, slen)
 	fmt.Printf("%s\n", string(secret))
 }
