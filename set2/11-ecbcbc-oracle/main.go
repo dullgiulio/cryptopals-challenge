@@ -14,8 +14,8 @@ import (
 
 func pad(bs []byte, fill byte, sz int) []byte {
 	var end int
-	for ; end < len(bs); end += sz {
-	}
+	n := sz - (len(bs) % sz)
+	end := n + len(bs)
 	dst := make([]byte, end, end)
 	copy(dst, bs)
 	for i := len(bs); i < end; i++ {
