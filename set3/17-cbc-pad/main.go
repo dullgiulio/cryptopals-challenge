@@ -3,7 +3,9 @@ package main
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"fmt"
+	"io"
 	"log"
 )
 
@@ -63,10 +65,8 @@ func (c *cbcDec) CryptBlocks(dst, src []byte) {
 	}
 }
 
-func decryptAesCbc(cph cipher.Block, data, iv []byte) []byte {
-	dst := make([]byte, len(data), len(data))
-	newCbcDec(cph, iv).CryptBlocks(dst, data)
-	return dst
+func (c *cbcDec) setIV(iv []byte) {
+	c.iv = iv
 }
 
 func encryptAesCbc(cph cipher.Block, data, iv []byte) []byte {
@@ -91,64 +91,92 @@ func validPkcs7(bs []byte) bool {
 	return true
 }
 
-func decryptValid(bs []byte, dec *cbcDec) bool {
-	dst := make([]byte, len(bs))
-	dec.CryptBlocks(dst, bs)
-	return validPkcs7(dst[len(dst)-16:])
+type cbcOracle struct {
+	dec *cbcDec
 }
 
-func guessCBC(b1, b2, iv []byte, dec *cbcDec) []byte {
+func newOracle(dec *cbcDec) *cbcOracle {
+	return &cbcOracle{dec: dec}
+}
+
+func (o *cbcOracle) decrypt(bs []byte) []byte {
+	dst := make([]byte, len(bs))
+	o.dec.CryptBlocks(dst, bs)
+	return dst
+}
+
+func (o *cbcOracle) validPkcs7(bs []byte) bool {
+	return validPkcs7(bs[len(bs)-16:])
+}
+
+func (o *cbcOracle) valid(bs, iv []byte) bool {
+	o.dec.setIV(iv)
+	return o.validPkcs7(o.decrypt(bs))
+}
+
+func bruteLastBlock(bs, iv []byte, o *cbcOracle) []byte {
+	var (
+		guessed int
+		b1, b2  []byte
+	)
 	buf := make([]byte, 32)
-    guessed := 0
-    guess := make([]byte, 16)
+	guess := make([]byte, 16)
 	plain := make([]byte, 16)
+	if len(bs) >= 32 {
+		b1 = bs[len(bs)-32 : len(bs)-16]
+		b2 = bs[len(bs)-16:]
+	} else {
+		b1 = iv
+		b2 = bs
+	}
 	copy(buf[16:], b2)
 	for pad := byte(1); pad <= byte(16); pad++ {
-		for b := 1; b <= 255; b++ {
-			buf[15-guessed] = byte(b)
-            for i := 0; i < guessed; i++ {
+		for b := byte(1); b <= byte(255); b++ {
+			buf[15-guessed] = b
+			for i := 0; i < guessed; i++ {
 				buf[15-i] = guess[15-i] ^ pad
 			}
 			for k := 0; k < 15-len(plain); k++ {
 				buf[k] = b1[k]
 			}
-			if decryptValid(buf, dec) {
-                guess[15-guessed] = byte(b) ^ pad
-                plain[15-guessed] = b1[15-guessed] ^ byte(b) ^ pad
+			if o.valid(buf, iv) {
+				guess[15-guessed] = b ^ pad
+				plain[15-guessed] = b1[15-guessed] ^ b ^ pad
 				guessed++
-                break
+				break
 			}
 		}
 	}
 	return plain
 }
 
-func testPkcs7() {
-	data := []struct {
-		bs       []byte
-		expected bool
-	}{
-		{[]byte("0123456789\x06\x06\x06\x06\x06\x06"), true},
-		{[]byte("0123456789\x06\x06\x00\x00\x00\x00"), true},
-		{[]byte("0123456789\x06\x06\x00\x00\x00\x02"), false},
+func brute(bs, iv []byte, o *cbcOracle) []byte {
+	var plain []byte
+	for len(bs) > 0 {
+		plain = append(bruteLastBlock(bs, iv, o), plain...)
+		bs = bs[:len(bs)-16]
 	}
-	for i := range data {
-		if res := validPkcs7(data[i].bs); res != data[i].expected {
-			fmt.Printf("%v = %v (expected %v)\n", data[i].bs, res, data[i].expected)
-		}
-	}
+	return plain
 }
 
 func main() {
-	// testPkcs7()
-	buf := []byte("YELLOW SUBMARINEYELLOW SUBMARINE")
-	cph, err := aes.NewCipher([]byte("YELLOW SUBMARINE"))
+	// TODO: select from list of base64 strings
+	buf := []byte("YELLOW0SUBMARINEYELLOW1SUBMARINE")
+	key := make([]byte, 16)
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		log.Fatalf("cannot initialize random AES-128 key: %v", err)
+	}
+	iv := make([]byte, 16)
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		log.Fatalf("cannot initialize IV: %v", err)
+	}
+	cph, err := aes.NewCipher(key)
 	if err != nil {
 		log.Fatalf("cannot create AES cipher: %v", err)
 	}
-	iv := make([]byte, 16, 16)
 	secret := encryptAesCbc(cph, buf, iv)
-	dec := newCbcDec(cph, iv)
-	plain := guessCBC(secret[:16], secret[16:], iv, dec)
-	fmt.Printf("%s\n", plain)
+	oracle := newOracle(newCbcDec(cph, iv))
+	plain := brute(secret, iv, oracle)
+	// TODO: strip pkcs7 padding from plain
+	fmt.Printf("'%s'\n", plain)
 }
