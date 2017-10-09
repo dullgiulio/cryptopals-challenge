@@ -126,8 +126,9 @@ func guessXkey(lines [][]byte, size int) []byte {
 			maxScore int
 			maxVal   byte
 		)
-		for b := byte(0); b < byte(255); b++ {
+		for bi := 0; bi <= 255; bi++ {
 			var score int
+			b := byte(bi)
 			for l := range lines {
 				score = score + likely(lines[l][i]^b)
 			}

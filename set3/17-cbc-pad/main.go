@@ -131,7 +131,8 @@ func bruteLastBlock(bs, iv []byte, o *cbcOracle) []byte {
 	}
 	copy(buf[16:], b2)
 	for pad := byte(1); pad <= byte(16); pad++ {
-		for b := byte(1); b <= byte(255); b++ {
+		for bi := 1; bi <= 255; bi++ {
+			b := byte(bi)
 			buf[15-guessed] = b
 			for i := 0; i < guessed; i++ {
 				buf[15-i] = guess[15-i] ^ pad

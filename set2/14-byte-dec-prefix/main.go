@@ -155,10 +155,11 @@ func guessPrefixSize(e *encrypter, blocksize int) int {
 
 func fillHash(h *hash, e *encrypter, prefix []byte, start, pad int) {
 	end := len(prefix)
-	for i := byte(0); i < byte(255); i++ {
-		prefix[end-1] = i
+	for i := 0; i <= 255; i++ {
+		b := byte(i)
+		prefix[end-1] = b
 		res := e.encrypt(prefix)
-		h.put(res[start:end+start-pad], i)
+		h.put(res[start:end+start-pad], b)
 	}
 	h.sort()
 }

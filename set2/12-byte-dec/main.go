@@ -134,10 +134,11 @@ func guessSizes(e *encrypter) (secret, block int) {
 
 func fillHash(h *hash, e *encrypter, prefix []byte) {
 	end := len(prefix)
-	for i := byte(0); i < byte(255); i++ {
-		prefix[end-1] = i
+	for i := 0; i <= 255; i++ {
+		b := byte(i)
+		prefix[end-1] = b
 		res := e.encrypt(prefix)
-		h.put(res[0:end], i)
+		h.put(res[0:end], b)
 	}
 	h.sort()
 }
