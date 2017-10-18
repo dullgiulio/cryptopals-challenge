@@ -209,14 +209,6 @@ func keyextend(mac mac, data, digest, suffix []byte, maxlen int) (guesshash, msg
 	return nil, nil
 }
 
-func readableString(bs string) string {
-	out, err := json.Marshal(bs)
-	if err != nil {
-		log.Fatalf("cannot pretty print string: %v", err)
-	}
-	return string(out)
-}
-
 func main() {
 	maxlen := 42
 	suffix := []byte(";admin=true")
@@ -228,5 +220,5 @@ func main() {
 		log.Fatal("MAC and message not valid")
 	}
 	guesshash, msg := keyextend(mac, data, digest, suffix, maxlen)
-	fmt.Printf("Admin:\t %s %s\n", hex.EncodeToString(guesshash), readableString(string(msg)))
+	fmt.Printf("Admin:\t %s %q\n", hex.EncodeToString(guesshash), string(msg))
 }
