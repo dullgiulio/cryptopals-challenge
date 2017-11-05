@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	mrand "math/rand"
+	"time"
 )
 
 const px = "ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f24117c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08ca237327ffffffffffffffff"
@@ -110,7 +111,7 @@ func (m *dhB) apply(d *dh) {
 	d.setB(m)
 }
 
-func tamperG(g, exp *big.Int) {
+func tamperG(g, expB, expA *big.Int) {
 	alice := newDH(mrand.Int63())
 	bob := newDH(mrand.Int63())
 
@@ -132,12 +133,12 @@ func tamperG(g, exp *big.Int) {
 
 	// guess bob's side
 	s := &big.Int{}
-	s.Exp(alice.A, exp, alice.p)
+	s.Exp(alice.A, expB, alice.p)
 	key := s.Bytes()
 	keyB := hash(key)[:16]
 
 	// guess alice's side
-	s.Exp(bob.B, exp, bob.p)
+	s.Exp(bob.B, expA, bob.p)
 	key = s.Bytes()
 	keyA := hash(key)[:16]
 
@@ -155,6 +156,8 @@ func tamperG(g, exp *big.Int) {
 }
 
 func main() {
+	mrand.Seed(time.Now().Unix())
+
 	bs, _ := hex.DecodeString(px)
 	p := &big.Int{}
 	p.SetBytes(bs)
@@ -162,9 +165,9 @@ func main() {
 	p1.Add(p, big.NewInt(-1))
 
 	fmt.Printf("g = 1:\n")
-	tamperG(big.NewInt(1), big.NewInt(1))
+	tamperG(big.NewInt(1), big.NewInt(1), big.NewInt(1))
 	fmt.Printf("g = p:\n")
-	tamperG(p, p1)
+	tamperG(p, big.NewInt(1), big.NewInt(1))
 	fmt.Printf("g = p-1:\n")
-	tamperG(p1, big.NewInt(1))
+	tamperG(p1, big.NewInt(1), big.NewInt(1))
 }
